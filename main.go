@@ -57,8 +57,23 @@ func main() {
 		mcp.WithDescription("Get the 'On Deck' / 'Continue Watching' list for the current user"),
 	)
 
+	pickMovieTool := mcp.NewTool("pick_something",
+		mcp.WithDescription("Pick a random movie from the library"),
+	)
+
+	newSeriesTool := mcp.NewTool("start_a_new_series",
+		mcp.WithDescription("Pick a random TV show to start watching"),
+	)
+
+	watchAnimeTool := mcp.NewTool("watch_anime",
+		mcp.WithDescription("Pick a random anime series to start watching"),
+	)
+
 	s.AddTool(searchTool, handleSearchMedia)
 	s.AddTool(onDeckTool, handleGetOnDeck)
+	s.AddTool(pickMovieTool, handlePickRandom("Movies"))
+	s.AddTool(newSeriesTool, handlePickRandom("TV Shows"))
+	s.AddTool(watchAnimeTool, handlePickRandom("Anime"))
 
 	log.Println("Starting plex-mcp-go server on stdio...")
 	if err := server.ServeStdio(s); err != nil {
@@ -217,6 +232,91 @@ func handleGetOnDeck(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolRes
 	return mcp.NewToolResultText(sb.String()), nil
 }
 
+// findSectionKey looks up a library section key by its title.
+func findSectionKey(title string) (string, error) {
+	resp, err := plexRequest("/library/sections")
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch library sections: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Plex API returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var sectionsResp sectionsResponse
+	if err := json.Unmarshal(body, &sectionsResp); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	for _, dir := range sectionsResp.MediaContainer.Directory {
+		if strings.EqualFold(dir.Title, title) {
+			return dir.Key, nil
+		}
+	}
+	return "", fmt.Errorf("library section %q not found", title)
+}
+
+// handlePickRandom returns a handler that picks a random item from the named library section.
+func handlePickRandom(sectionTitle string) server.ToolHandlerFunc {
+	return func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		key, err := findSectionKey(sectionTitle)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		endpoint := fmt.Sprintf("/library/sections/%s/all?sort=random&limit=1", key)
+		resp, err := plexRequest(endpoint)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Plex API request failed: %v", err)), nil
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return mcp.NewToolResultError(fmt.Sprintf("Plex API returned status %d", resp.StatusCode)), nil
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err)), nil
+		}
+
+		var randomResp randomPickResponse
+		if err := json.Unmarshal(body, &randomResp); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to parse response: %v", err)), nil
+		}
+
+		items := randomResp.MediaContainer.Metadata
+		if len(items) == 0 {
+			return mcp.NewToolResultText(fmt.Sprintf("No items found in the %s library.", sectionTitle)), nil
+		}
+
+		item := items[0]
+		yearStr := ""
+		if item.Year > 0 {
+			yearStr = fmt.Sprintf(" (%d)", item.Year)
+		}
+		rating := ""
+		if item.Rating > 0 {
+			rating = fmt.Sprintf(" - %.1f/10", item.Rating)
+		}
+		summary := ""
+		if item.Summary != "" {
+			summary = fmt.Sprintf("\n\n%s", item.Summary)
+		}
+
+		result := fmt.Sprintf("Random pick from %s:\n\n%s%s%s%s",
+			sectionTitle, item.Title, yearStr, rating, summary)
+
+		return mcp.NewToolResultText(result), nil
+	}
+}
+
 // --- Plex API response types ---
 
 type hubSearchResponse struct {
@@ -241,6 +341,27 @@ type onDeckResponse struct {
 			Index            int    `json:"index"`
 			ViewOffset       int64  `json:"viewOffset"`
 			Duration         int64  `json:"duration"`
+		} `json:"Metadata"`
+	} `json:"MediaContainer"`
+}
+
+type sectionsResponse struct {
+	MediaContainer struct {
+		Directory []struct {
+			Key   string `json:"key"`
+			Type  string `json:"type"`
+			Title string `json:"title"`
+		} `json:"Directory"`
+	} `json:"MediaContainer"`
+}
+
+type randomPickResponse struct {
+	MediaContainer struct {
+		Metadata []struct {
+			Title   string  `json:"title"`
+			Year    int     `json:"year"`
+			Rating  float64 `json:"rating"`
+			Summary string  `json:"summary"`
 		} `json:"Metadata"`
 	} `json:"MediaContainer"`
 }
