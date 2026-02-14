@@ -1,0 +1,9 @@
+# Environment variables (contains secrets)
+.env
+
+# Go binary
+plex-mcp-go
+
+# OS artifacts
+.DS_Store
+Thumbs.db

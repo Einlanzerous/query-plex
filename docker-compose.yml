@@ -1,0 +1,8 @@
+services:
+  plex-mcp-go:
+    build: .
+    container_name: plex-mcp-go
+    restart: unless-stopped
+    env_file:
+      - .env
+    stdin_open: true
