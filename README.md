@@ -120,6 +120,26 @@ To build a standalone binary:
 go build -o plex-mcp-go .
 ```
 
+## CI/CD
+
+This project uses GitHub Actions with two workflows:
+
+### CI (on push/PR to `main`)
+
+- **test** — dependency verification, `go vet`, and `go test` with race detection
+- **build** — compiles the binary and uploads it as a build artifact
+- **lint** — runs [golangci-lint](https://golangci-lint.run/)
+
+### Release (on push to `main`)
+
+Automated releases via [Release Please](https://github.com/googleapis/release-please). When a release is created:
+
+- Builds a multi-platform Docker image (`linux/amd64`, `linux/arm64`)
+- Pushes to GitHub Container Registry: `ghcr.io/einlanzerous/query-plex`
+- Tags with semver (`1.0.0`, `1.0`) and `latest`
+
+To trigger a release, use [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`). Release Please will open a PR to bump the version, and merging it creates the release.
+
 ## Startup Validation
 
 On launch, the server pings the Plex API (`/identity` endpoint) to verify your token is valid. If the connection fails or the token is rejected, the server exits with a fatal error immediately rather than starting in a broken state.
@@ -134,5 +154,8 @@ On launch, the server pings the Plex API (`/identity` endpoint) to verify your t
 ├── Dockerfile           # Multi-stage build (builder → distroless)
 ├── docker-compose.yml   # Docker Compose service definition
 ├── .env.example         # Template for environment variables
+├── .github/workflows/
+│   ├── ci.yml           # CI pipeline (test, build, lint)
+│   └── release.yml      # Release Please + Docker build/push
 └── README.md
 ```
