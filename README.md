@@ -1,4 +1,4 @@
-# plex-mcp-go
+# Query-Plex
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server written in Go that connects AI assistants to a remote Plex Media Server. It allows an LLM to search your Plex library and check what's currently on deck — all through natural language.
 
